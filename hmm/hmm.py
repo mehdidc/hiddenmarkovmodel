@@ -98,6 +98,8 @@ class HMM(object):
         for i in range(seq_length):
             X[i, :] = self._generate_one_step(z, rng)
             z = rng.choice(range(self.K), p=self.trans_matrix_[z])
+        if X.shape[1] == 1:
+            X = X[:, 0]
         return X
 
     def _generate_one_step(self, z, rng):
@@ -223,11 +225,15 @@ class HMM(object):
             Observed data.
 
         """
+        if len(X.shape) == 1:
+            X = X[:, np.newaxis]
         ll = -np.inf
         best_params = None
         for i in range(self.n_repeats):
             ll_new = self._fit_once(X)
-            if ll_new > ll:
+            if np.isnan(ll):
+                print('HMM failed at repeatition {}, log-likelihood is {}'.format(i, ll))
+            elif ll_new > ll:
                 ll = ll_new
                 best_params = self._get_params()
         if best_params is None:
@@ -252,6 +258,9 @@ class HMM(object):
             # evaluate
             prev_ll = ll
             ll = self.loglikelihood(X)
+            if np.isnan(ll):
+                return np.nan
+
             if prev_ll is not None:
                 change = np.abs(prev_ll - ll)
                 if change <= self.tol:
@@ -313,11 +322,32 @@ class HMM(object):
 
 
 class GaussianHMM(HMM):
+    """
+    Implemen Gaussian version of HMM.
 
-    def __init__(self, **kwargs):
+    Observations must be real values.
+
+    Parameters
+    ----------
+
+    cov_type : string
+        covariance type can be diagonal/spherical/full
+        diagonal : no covariances, only variances, one per feature
+        spherical : diagonal but variances are shared between features
+        full : no constraint on covariance
+
+    epsilon : float
+        a very small number added to the covariance matrix to avoid singularity
+
+    """
+    def __init__(self, cov_type='diagonal',  epsilon=1e-8, **kwargs):
         super(GaussianHMM, self).__init__(**kwargs)
+        assert cov_type in ('diagonal', 'spherical', 'full')
+
+        self.cov_type = cov_type
         self.mu_ = None
-        self._cov = None
+        self.cov_ = None
+        self.epsilon = epsilon
 
         self._params_list.append('mu_')
         self._params_list.append('cov_')
@@ -329,24 +359,30 @@ class GaussianHMM(HMM):
         self.cov_ = np.repeat(np.eye(X.shape[1])[np.newaxis, :, :], self.K, axis=0)
 
     def _m_step_conditionals(self, X, gammas, eps):
-        # eq  13.20 : 
+        # eq  13.20
         x = X[:, np.newaxis, :] # shape : (N, K, F)
         w = gammas[:, :, np.newaxis] # shape : (N, K, F)
         self.mu_ = (x*w).sum(axis=0) / w.sum(axis=0)
-        # eq  13.21 :
-        cov = np.zeros((self.K, X.shape[1], X.shape[1]))
-        for k in range(self.K):
-            cov[k] = np.cov(weighted_X[:, k, :].T)
-        self.cov_ = cov # shape (K, F, F)
-        
+
+        # TODO : cov_type of type 'full' 
+        if self.cov_type == 'diagonal':
+            var = (((x - self.mu_)**2)*w).sum(axis=0) / w.sum(axis=0)
+            for k in range(self.K):
+                self.cov_[k] = np.diag(var[k] + self.epsilon)
+        elif self.cov_type == 'spherical':
+            var = (((x - self.mu_)**2)*w).sum(axis=0) / w.sum(axis=0)
+            var_global = var.mean(axis=1)
+            for k in range(self.K):
+                self.cov_[k] = np.diag([var_global[k] + self.epsilon] * X.shape[1]) + self.epsilon
 
     def _p_x_given_z(self, X):
         p = np.zeros((X.shape[0], self.K))
         for k in range(self.K):
-            densities = multivariate_normal(self.mu_[k], self._cov[k]).pdf(X)
-            p[:, k] = densities
+            p[:, k] = multivariate_normal(self.mu_[k], self.cov_[k]).pdf(X)
         return p
 
+    def _generate_one_step(self, z, rng):
+        return rng.multivariate_normal(self.mu_[z], self.cov_[z])
 
 class BernoulliHMM(HMM):
     """
@@ -450,12 +486,3 @@ class MultinomialHMM(HMM):
         for f in range(p.shape[1]):
             sample[f] = rng.choice(self._cats, p=p[:, f])
         return sample
-
-if __name__ == '__main__':
-    hmm = MultinomialHMM(n_states=3, verbose=0, n_repeats=50)
-    X = ['a'] * 5 + ['b'] * 5 + ['c'] * 5
-    X = np.array(X)[:, np.newaxis]
-    hmm.fit(X)
-    print(''.join(hmm.generate(15)[:, 0]))
-    print(''.join(hmm.generate(15)[:, 0]))
-    print(''.join(hmm.generate(15)[:, 0]))

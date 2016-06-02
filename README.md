@@ -17,9 +17,8 @@ import numpy as np
 from hmm import MultinomialHMM
 hmm = MultinomialHMM(n_states=3, verbose=0, n_repeats=20)
 X = ['a'] * 5 + ['b'] * 5 + ['c'] * 5 # build a simple sequence of characters
-X = np.array(X)[:, np.newaxis] # make it a matrix of 1 column because HMM classes expect a matrix
+X = np.array(X)
 hmm.fit(X) # learn the parameters of the model with EM
-print(''.join(hmm.generate(15)[:, 0])) # generate a sequence of 15 characters from the model
-print(''.join(hmm.generate(15)[:, 0])) # generate a sequence of 15 characters from the model
-print(''.join(hmm.generate(15)[:, 0])) # generate s sequence of 15 characters from the model
+for i in range(3):
+	print(''.join(hmm.generate(15))) # generate a sequence of 15 characters from the model
 ```
