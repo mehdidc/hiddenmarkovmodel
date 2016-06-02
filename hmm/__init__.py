@@ -1,1 +1,1 @@
-from hmm import BernoulliHMM, GaussianHMM
+from hmm import BernoulliHMM, GaussianHMM, MultinomialHMM
